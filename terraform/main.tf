@@ -1,20 +1,3 @@
-# SSH KEY
-
-resource "tls_private_key" "ssh_key" {
-
-  algorithm = "RSA"
-  rsa_bits  = 4096
-
-}
-
-resource "local_file" "private_key" {
-
-  content         = tls_private_key.ssh_key.private_key_pem
-  filename        = pathexpand("~/.ssh/yablonskyi_rsa_key.pem")
-  file_permission = "0600"
-
-}
-
 # VPC
 
 resource "google_compute_network" "vpc" {
@@ -79,21 +62,12 @@ resource "google_compute_instance" "node" {
 
   metadata = {
 
-    ssh-keys = "ubuntu:${tls_private_key.ssh_key.public_key_openssh}"
+    ssh-keys = "ubuntu:${var.ssh_public_key}"
 
   }
-
-#Auto generation Ansible inventory
-
-  provisioner "local-exec" {
-
-    command = "echo '[yablonskyi_nodes]\n${self.network_interface[0].access_config[0].nat_ip} ansible_user=ubuntu ansible_ssh_private_key_file=${local_file.private_key.filename} ansible_ssh_common_args=\"-o StrictHostKeyChecking=no\"' > ../ansible/inventory.ini"
-
-  }
-
 }
 
-# Storage Bucket
+# Bucket
 resource "google_storage_bucket" "my_bucket" {
   name          = var.bucket_name
   location      = var.region

@@ -65,4 +65,4 @@ variable "state_bucket" {
 
 variable "ssh_public_key" {
   type = string
-}
+}variable "ssh_public_key" 
