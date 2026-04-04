@@ -37,7 +37,7 @@ jobs:
 
       # Бакет для стану (якщо він використовується як змінна у коді)
       TF_VAR_state_bucket: "terraform-state-lab3-devops2"
-
+      TF_VAR_bucket_name: "yablonskyi-bucket"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
