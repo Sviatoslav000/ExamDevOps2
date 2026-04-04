@@ -8,6 +8,10 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: ./terraform
+
     # Ось тут ми кажемо: "Візьми секрет і зроби його доступним для всіх кроків"
     env:
       GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
