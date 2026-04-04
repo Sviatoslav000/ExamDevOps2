@@ -1,0 +1,64 @@
+variable "project_id" {
+  description = "ID of the GCP project"
+  type        = string
+}
+
+variable "region" {
+  description = "GCP region"
+  default     = "europe-west4"
+} 
+
+variable "zone" {
+  description = "GCP zone"
+  default     = "europe-west4-a"
+}
+
+variable "vm_name" {
+  description = "Name of VM"
+  type        = string
+}
+
+variable "bucket_name" {
+  description = "Name of bucket"
+  type        = string
+}
+
+variable "vpc_name" {
+  description = "Name of VPC"
+  type        = string
+}
+
+variable "subnet_name" {
+  description = "Subnet name"
+  type        = string
+}
+
+variable "subnet_cidr" {
+  description = "Subnet CIDR range"
+  type        = string
+}
+
+variable "firewall_name" {
+  description = "Firewall name"
+  type        = string
+}
+
+variable "machine_type" {
+  description = "VM machine type"
+  type        = string
+}
+
+variable "disk_size" {
+  description = "Boot disk size"
+  type        = number
+}
+
+variable "image" {
+  description = "VM image"
+  type        = string
+}
+
+variable "state_bucket" {
+  description = "Terraform state bucket"
+  type        = string
+}
