@@ -1,0 +1,44 @@
+name: "Terraform Destroy"
+
+on:
+  # Цей рядок дозволяє запускати конвеєр ВРУЧНУ
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
+  # Навіть для знищення Terraform потрібні значення змінних, 
+  # щоб він розумів, яку конфігурацію він видаляє
+  TF_VAR_project_id: "project-7978cf2d-3155-47fa-ac7"
+  TF_VAR_region: "us-central1"
+  TF_VAR_zone: "us-central1-a"
+  TF_VAR_vpc_name: "yablonskyi-vpc"
+  TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+  # Додайте всі інші TF_VAR_, які є у вашому основному конвеєрі
+
+jobs:
+  terraform-destroy:
+    name: "Destroy Infrastructure"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./terraform
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      # Крок перевірки (що саме буде видалено)
+      - name: Terraform Plan Destroy
+        run: terraform plan -destroy -input=false
+
+      # Власне видалення
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve -input=false
