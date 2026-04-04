@@ -7,14 +7,30 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
-  # Навіть для знищення Terraform потрібні значення змінних, 
-  # щоб він розумів, яку конфігурацію він видаляє
-  TF_VAR_project_id: "project-7978cf2d-3155-47fa-ac7"
+
+  # Змінні для проекту та регіону
+  TF_VAR_project_id: ${{ secrets.PROJECT_ID }}
+  TF_VAR_ssh_public_key: ${{ secrets.SSH_PRIVATE_KEY }}
   TF_VAR_region: "us-central1"
   TF_VAR_zone: "us-central1-a"
+
+  # Назви ресурсів 
+  TF_VAR_vm_name: "yablonskyi-minikube-node"
   TF_VAR_vpc_name: "yablonskyi-vpc"
-  TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
-  # Додайте всі інші TF_VAR_, які є у вашому основному конвеєрі
+  TF_VAR_subnet_name: "yablonskyi-subnet"
+  TF_VAR_firewall_name: "yablonskyi-firewall"
+
+      # Мережеві налаштування
+  TF_VAR_subnet_cidr: "10.10.10.0/24"
+
+      # Конфігурація ВМ
+  TF_VAR_machine_type: "e2-medium"
+  TF_VAR_disk_size: "20"
+  TF_VAR_image: "ubuntu-os-cloud/ubuntu-minimal-2510-amd64"
+
+      # Бакет для стану (якщо він використовується як змінна у коді)
+  TF_VAR_state_bucket: "terraform-state-lab3-devops2"
+  TF_VAR_bucket_name: "yablonskyi-bucket"
 
 jobs:
   terraform-destroy:
