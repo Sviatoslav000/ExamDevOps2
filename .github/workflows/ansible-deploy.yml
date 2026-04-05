@@ -21,6 +21,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: terraform-ip
+          # Вказуємо ID конкретного запуску, який активував цей workflow
+          run-id: ${{ github.event.workflow_run.id }}
+          # Додаємо токен, щоб мати права на завантаження з іншого раннера
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           path: .
 
       - name: Set IP Variable
