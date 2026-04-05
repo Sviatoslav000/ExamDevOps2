@@ -65,7 +65,7 @@
         state: present
         update_cache: yes
         cache_valid_time: 3600
-        check_mode: no
+      check_mode: no
 
 # --- 2.2 Docker installation ---
 
