@@ -212,3 +212,4 @@
           - "Alertmanager URL: http://{{ ansible_host }}:9093"
           - "Grafana Login: admin"
           - "Grafana Password: {{ grafana_password.stdout }}"
+      when: not ansible_check_mode
