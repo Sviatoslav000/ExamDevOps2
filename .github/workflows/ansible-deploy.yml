@@ -3,7 +3,7 @@ name: "Ansible Software Deployment"
 on:
   # Запуск після успішного завершення Terraform workflow
   workflow_run:
-    workflows: ["Terraform Build"] # Назва вашого першого workflow
+    workflows: ["Terraform Deploy"] # Назва вашого першого workflow
     types: [completed]
   workflow_dispatch: # Можливість ручного запуску
 
