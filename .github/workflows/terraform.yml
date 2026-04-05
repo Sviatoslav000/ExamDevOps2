@@ -18,7 +18,7 @@ jobs:
 
       # Змінні для проекту та регіону
       TF_VAR_project_id: ${{ secrets.PROJECT_ID }}
-      TF_VAR_ssh_public_key: ${{ secrets.SSH_PRIVATE_KEY }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_region: "us-central1"
       TF_VAR_zone: "us-central1-a"
 
