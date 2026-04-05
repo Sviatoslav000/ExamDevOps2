@@ -64,6 +64,7 @@
           - acl
         state: present
         update_cache: yes
+        cache_valid_time: 3600
 
 # --- 2.2 Docker installation ---
 
@@ -73,6 +74,10 @@
           - docker.io
         state: present
         update_cache: yes
+      register: docker_install
+      until: docker_install is success
+      retries: 3
+      delay: 5
 
     - name: Enable and start Docker
       service:
