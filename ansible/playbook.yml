@@ -182,7 +182,7 @@
       become_user: yablonskyi_devops
       shell: |
         nohup /home/yablonskyi_devops/expose-monitoring.sh &
-
+      when: not ansible_check_mode
 
 # --- 2.7 Retrieving Grafana password ---
 
@@ -196,6 +196,7 @@
         -n monitoring-yablonskyi \
         -o jsonpath="{.data.admin-password}" | base64 --decode
       register: grafana_password
+      when: not ansible_check_mode
 
 
 # --- 2.9 Prompting the key information ---
