@@ -56,7 +56,6 @@
           - apt-transport-https
           - ca-certificates
           - curl
-          - gnupg
           - software-properties-common
           - conntrack
           - socat
