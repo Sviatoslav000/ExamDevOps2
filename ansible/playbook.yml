@@ -130,7 +130,7 @@
         HOME: /home/yablonskyi_devops
       shell: |
         minikube start --driver=docker
-
+      when: not ansible_check_mode
 
 # --- 2.5 Prometheus-stack configuration via Helm ---
 
