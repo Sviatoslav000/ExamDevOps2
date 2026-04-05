@@ -18,7 +18,7 @@ jobs:
 
       # Змінні для проекту та регіону
       TF_VAR_project_id: ${{ secrets.PROJECT_ID }}
-      TF_VAR_ssh_public_key: ${{ secrets.SSH_PRIVATE_KEY }} 
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PRIVATE_KEY }}
       TF_VAR_region: "us-central1"
       TF_VAR_zone: "us-central1-a"
 
@@ -61,3 +61,12 @@ jobs:
         run: |
           VM_IP=$(terraform output -raw vm_ip)
           echo "VM_IP=$VM_IP" >> $GITHUB_ENV
+
+      - name: Save IP Address
+        run: echo "$(terraform output -raw vm_public_ip)" > vm_ip.txt
+
+      - name: Upload IP Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-ip
+          path: terraform/vm_ip.txt

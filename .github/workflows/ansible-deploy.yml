@@ -1,0 +1,55 @@
+name: "Ansible Software Deployment"
+
+on:
+  # Запуск після успішного завершення Terraform workflow
+  workflow_run:
+    workflows: ["Terraform Build"] # Назва вашого першого workflow
+    types: [completed]
+  workflow_dispatch: # Можливість ручного запуску
+
+jobs:
+  ansible:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. ОТРИМАННЯ IP (Параметричне задання вузла)
+      - name: Download IP Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-ip
+          path: .
+
+      - name: Set IP Variable
+        run: echo "VM_IP=$(cat vm_ip.txt)" >> $GITHUB_ENV
+
+      # 2. ПІДГОТОВКА SSH (Секрети приховані в GitHub Secrets)
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # Додаємо хост до відомих, щоб уникнути запиту (StrictHostKeyChecking)
+          ssh-keyscan -H ${{ env.VM_IP }} >> ~/.ssh/known_hosts
+
+      # 3. ВИМОГА: ПЕРЕВІРКА БЕЗ ВСТАНОВЛЕННЯ (Check Mode)
+      - name: Ansible Pre-install Check
+        run: |
+          ansible-playbook ansible/playbook.yml \
+            -i "${{ env.VM_IP }}," \
+            -u ubuntu \
+            --private-key ~/.ssh/id_rsa \
+            --check \
+            --diff
+        # Якщо цей крок впаде, конвеєр зупиниться автоматично
+
+      # 4. РЕАЛЬНЕ ВСТАНОВЛЕННЯ
+      - name: Ansible Real Install
+        run: |
+          ansible-playbook ansible/playbook.yml \
+            -i "${{ env.VM_IP }}," \
+            -u ubuntu \
+            --private-key ~/.ssh/id_rsa

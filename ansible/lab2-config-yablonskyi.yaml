@@ -1,0 +1,81 @@
+grafana:
+  adminPassword: "yablonskyi-lab3-admin"
+# --- Фільтрація Алертів (Optimization for Minikube) ---
+# Вимикаємо правила для компонентів k8s, які в Minikube можуть працювати некоректно
+defaultRules:
+  create: true
+  rules:
+    etcd: false                # Прибирає помилки etcdMembersDown
+    kubeApiserverAvailability: false
+    kubeApiserverSlos: false
+    kubeControllerManager: false
+    kubeScheduler: false
+    kubeProxy: false
+    k8s: false
+
+    # Залишаємо важливе для нас:
+    node: true                 # Стан ноди
+    nodeExporterAlerting: true # CPU, RAM, Disk
+    general: true              # Watchdog (перевірка зв'язку)
+
+# --- Вимикаємо збір метрик з Control Plane (економія ресурсів) ---
+kubeEtcd:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+# --- Додаткові правила користувача ---
+additionalPrometheusRules:
+  - name: "custom-hardware-alerts"
+    groups:
+      - name: "host-hardware"
+        rules:
+
+          # Алерт: Високе навантаження на CPU (>30% протягом 1 хв)
+          - alert: HostHighCpuLoad
+            expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100) > 30
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Host {{ $labels.instance }} - High CPU load"
+              description: "CPU load is > 30% (current value: {{ $value | humanize }}%)"
+
+          # Алерт: Мало вільної пам'яті (<70%)
+          - alert: HostOutofMemory
+            expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 70
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Host {{ $labels.instance }} out of memory"
+
+# --- Налаштування Alertmanager (Discord) ---
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+
+    route:
+      group_by: ['alertname']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+      receiver: 'discord-webhook'   # Отримувач за замовчуванням
+
+      routes:
+        - receiver: 'discord-webhook'
+          matchers:
+            - alertname =~ "Watchdog|InstanceDown|HostHighCpuLoad"
+
+    receivers:
+      - name: 'discord-webhook'
+        discord_configs:
+          - webhook_url: 'https://discord.com/api/webhooks/1480605900120133784/26QzP3oZyeYHQ0o5gErdHQv7smSmWDtHY20i2rxxPLARUH8qe5BL-MdrGiSqandG3EaM' # ВСТАВ СВІЙ WEBHOOK
+            send_resolved: true
+            title: '{{ .CommonLabels.alertname }}'
+            message: 'Status: {{ .Status }} | Severity: {{ .CommonLabels.severity }} | Summary: {{ .CommonAnnotations.summary }}'

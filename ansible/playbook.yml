@@ -1,0 +1,204 @@
+# ======================================================================
+# Stage 1: Basic configuration and 'yablonskyi_devops' user creation
+# ======================================================================
+
+- name: 1. Bootstrap System and Create User
+  hosts: all
+  become: yes
+
+  vars:
+    new_user: "yablonskyi_devops"
+
+  tasks:
+
+    - name: Create new user '{{ new_user }}'
+      user:
+        name: "{{ new_user }}"
+        shell: /bin/bash
+        groups: sudo
+        append: yes
+        create_home: yes
+
+    - name: Set up passwordless sudo for '{{ new_user }}'
+      lineinfile:
+        path: /etc/sudoers.d/{{ new_user }}
+        line: "{{ new_user }} ALL=(ALL) NOPASSWD: ALL"
+        create: yes
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: Copy root SSH keys to new user
+      shell: |
+        mkdir -p /home/{{ new_user }}/.ssh
+        cp /root/.ssh/authorized_keys /home/{{ new_user }}/.ssh/
+        chown -R {{ new_user }}:{{ new_user }} /home/{{ new_user }}/.ssh
+        chmod 700 /home/{{ new_user }}/.ssh
+        chmod 600 /home/{{ new_user }}/.ssh/authorized_keys
+      args:
+        creates: /home/{{ new_user }}/.ssh/authorized_keys
+
+
+# ======================================================================
+# Stage 2: Kubernetes stack and its dependencies installation
+# ======================================================================
+
+- name: 2. Install Dependencies and K8s Stack
+  hosts: all
+  become: yes
+
+  tasks:
+
+# --- 2.1 Core system dependencies installation ---
+
+    - name: Update apt cache and install basic deps
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg-agent
+          - software-properties-common
+          - conntrack
+          - socat
+          - git
+          - acl
+        state: present
+        update_cache: yes
+
+# --- 2.2 Docker installation ---
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker.io
+        state: present
+        update_cache: yes
+
+    - name: Enable and start Docker
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add 'yablonskyi_devops' user to 'docker' group
+      user:
+        name: yablonskyi_devops
+        groups: docker
+        append: yes
+
+
+# --- 2.3 Kubectl, Minikube, Helm installation ---
+
+    - name: Install kubectl
+      shell: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      args:
+        creates: /usr/local/bin/kubectl
+
+    - name: Install Minikube
+      shell: |
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        install minikube-linux-amd64 /usr/local/bin/minikube
+      args:
+        creates: /usr/local/bin/minikube
+
+    - name: Install Helm
+      shell: |
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
+
+# --- 2.4 Kubernetes cluster launch ---
+
+    - name: Reset connection to apply group changes
+      meta: reset_connection
+
+    - name: Start Minikube (User mode)
+      become: yes
+      become_user: yablonskyi_devops
+      environment:
+        HOME: /home/yablonskyi_devops
+      shell: |
+        minikube start --driver=docker
+
+
+# --- 2.5 Prometheus-stack configuration via Helm ---
+
+    - name: Add Prometheus Repo
+      become: yes
+      become_user: yablonskyi_devops
+      environment:
+        HOME: /home/yablonskyi_devops
+      shell: |
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm repo update
+
+    - name: Copy values.yaml to target node
+      copy:
+        src: lab2-config-yablonskyi.yaml
+        dest: /home/yablonskyi_devops/values.yaml
+        owner: yablonskyi_devops
+        group: yablonskyi_devops
+
+
+    - name: Install Kube-Prometheus-Stack
+      become: yes
+      become_user: yablonskyi_devops
+      environment:
+        HOME: /home/yablonskyi_devops
+        KUBECONFIG: /home/yablonskyi_devops/.kube/config
+      shell: |
+        helm upgrade --install monitoring-stack prometheus-community/kube-prometheus-stack \
+        --namespace monitoring-yablonskyi \
+        --create-namespace \
+        -f /home/yablonskyi_devops/values.yaml \
+        --wait \
+        --timeout 10m
+
+
+# --- 2.6 Copying and launching port-forwarding script ---
+
+    - name: Copy expose-monitoring.sh to target node
+      copy:
+        src: expose-monitoring-yablonskyi.sh
+        dest: /home/yablonskyi_devops/expose-monitoring.sh
+        mode: '0755'
+        owner: yablonskyi_devops
+        group: yablonskyi_devops
+
+    - name: Execute expose-monitoring.sh
+      become: yes
+      become_user: yablonskyi_devops
+      shell: |
+        nohup /home/yablonskyi_devops/expose-monitoring.sh &
+
+
+# --- 2.7 Retrieving Grafana password ---
+
+    - name: Get Grafana Password
+      become: yes
+      become_user: yablonskyi_devops
+      environment:
+        KUBECONFIG: /home/yablonskyi_devops/.kube/config
+      shell: |
+        kubectl get secret monitoring-stack-grafana \
+        -n monitoring-yablonskyi \
+        -o jsonpath="{.data.admin-password}" | base64 --decode
+      register: grafana_password
+
+
+# --- 2.9 Prompting the key information ---
+
+    - name: Print Access Info
+      debug:
+        msg:
+          - "=========================================="
+          - "Deployment has been rolled out successfully!"
+          - "=========================================="
+          - "Grafana URL: http://{{ ansible_host }}:3000"
+          - "Prometheus URL: http://{{ ansible_host }}:9090"
+          - "Alertmanager URL: http://{{ ansible_host }}:9093"
+          - "Grafana Login: admin"
+          - "Grafana Password: {{ grafana_password.stdout }}"
