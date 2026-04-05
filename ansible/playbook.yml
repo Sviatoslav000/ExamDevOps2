@@ -142,6 +142,7 @@
       shell: |
         helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
         helm repo update
+      when: not ansible_check_mode
 
     - name: Copy values.yaml to target node
       copy:
@@ -164,7 +165,7 @@
         -f /home/yablonskyi_devops/values.yaml \
         --wait \
         --timeout 10m
-
+      when: not ansible_check_mode
 
 # --- 2.6 Copying and launching port-forwarding script ---
 
