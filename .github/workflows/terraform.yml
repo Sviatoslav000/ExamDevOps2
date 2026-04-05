@@ -34,7 +34,7 @@ jobs:
       # Конфігурація ВМ
       TF_VAR_machine_type: "e2-medium"
       TF_VAR_disk_size: "20"
-      TF_VAR_image: "ubuntu-os-cloud/ubuntu-minimal-2510-amd64"
+      TF_VAR_image: "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
 
       # Бакет для стану (якщо він використовується як змінна у коді)
       TF_VAR_state_bucket: "terraform-state-lab3-devops2"
