@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       vm_ip:
-        description: 'Введіть IP-адресу ВМ'
+        description: 'Введіть IP-адресу ВМ '
         required: true
 
 jobs:
@@ -61,33 +61,41 @@ jobs:
         run: |
           scp -i ~/.ssh/id_rsa task3/app-manifest.yaml ubuntu@${{ github.event.inputs.vm_ip }}:/home/ubuntu/app-manifest.yaml
 
-      - name: Deploy and Port-Forward as yablonskyi_devops
+      - name: Deploy and Port-Forward
         run: |
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ github.event.inputs.vm_ip }} << 'EOF'
-            sudo -u yablonskyi_devops bash << 'INNER_EOF'
-              cd /home/ubuntu
+          ssh -i ~/.ssh/id_rsa ubuntu@${{ github.event.inputs.vm_ip }} << EOF
 
-              pkill -f "port-forward.*8002" || true
-              pkill -f "port-forward.*8003" || true
+          sudo -u yablonskyi_devops mkdir -p /home/yablonskyi_devops/app
+          sudo cp /home/ubuntu/app-manifest.yaml /home/yablonskyi_devops/app/
+          sudo chown -R yablonskyi_devops:yablonskyi_devops /home/yablonskyi_devops/app
 
-              sed -e "s|\${ENV_NAME}|dev|g" \
-                  -e "s|\${IMAGE_TAG}|develop|g" \
-                  -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
-                  app-manifest.yaml > dev-deploy.yaml
+          cd /home/yablonskyi_devops/app
 
-              kubectl apply -f dev-deploy.yaml --validate=false
-              sleep 15
-              nohup kubectl port-forward svc/devops-app-svc 8002:8000 -n dev --address 0.0.0.0 > /dev/null 2>&1 &
+          sudo -u yablonskyi_devops pkill -f "port-forward.*8002" || true
+          sudo -u yablonskyi_devops pkill -f "port-forward.*8003" || true
 
-              sed -e "s|\${ENV_NAME}|release|g" \
-                  -e "s|\${IMAGE_TAG}|1.0.0|g" \
-                  -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
-                  app-manifest.yaml > release-deploy.yaml
+          sudo -u yablonskyi_devops sed -e "s|\${ENV_NAME}|dev|g" \
+              -e "s|\${IMAGE_TAG}|develop|g" \
+              -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
+              app-manifest.yaml > dev-deploy.yaml
 
-              kubectl apply -f release-deploy.yaml --validate=false
-              sleep 15
-              nohup kubectl port-forward svc/devops-app-svc 8003:8000 -n release --address 0.0.0.0 > /dev/null 2>&1 &
+          sudo -u yablonskyi_devops kubectl apply -f dev-deploy.yaml --validate=false
 
-              echo "Успішно розгорнуто!"
-            INNER_EOF
-          EOF
+          sleep 15
+
+          sudo -u yablonskyi_devops nohup kubectl port-forward svc/devops-app-svc 8002:8000 -n dev --address 0.0.0.0 > /dev/null 2>&1 &
+
+          sudo -u yablonskyi_devops sed -e "s|\${ENV_NAME}|release|g" \
+              -e "s|\${IMAGE_TAG}|1.0.0|g" \
+              -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
+              app-manifest.yaml > release-deploy.yaml
+
+          sudo -u yablonskyi_devops kubectl apply -f release-deploy.yaml --validate=false
+
+          sleep 15
+
+          sudo -u yablonskyi_devops nohup kubectl port-forward svc/devops-app-svc 8003:8000 -n release --address 0.0.0.0 > /dev/null 2>&1 &
+
+          echo "Успішно розгорнуто!"
+
+        EOF
