@@ -10,35 +10,25 @@ jobs:
 
     defaults:
       run:
-        working-directory: ./terraform
+        working-directory: ./task1
 
-    # Ось тут ми кажемо: "Візьми секрет і зроби його доступним для всіх кроків"
     env:
       GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
-
-      # Змінні для проекту та регіону
       TF_VAR_project_id: ${{ secrets.PROJECT_ID }}
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_region: "us-central1"
       TF_VAR_zone: "us-central1-a"
-
-      # Назви ресурсів (Ваше прізвище)
       TF_VAR_vm_name: "yablonskyi-minikube-node"
       TF_VAR_vpc_name: "yablonskyi-vpc"
       TF_VAR_subnet_name: "yablonskyi-subnet"
       TF_VAR_firewall_name: "yablonskyi-firewall"
-
-      # Мережеві налаштування
       TF_VAR_subnet_cidr: "10.10.10.0/24"
-
-      # Конфігурація ВМ
       TF_VAR_machine_type: "e2-medium"
       TF_VAR_disk_size: "20"
       TF_VAR_image: "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
-
-      # Бакет для стану (якщо він використовується як змінна у коді)
       TF_VAR_state_bucket: "terraform-state-lab3-devops2"
       TF_VAR_bucket_name: "yablonskyi-bucket"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
