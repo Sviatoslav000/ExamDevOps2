@@ -1,114 +1,109 @@
-name: "App Deployment to Minikube"
+name: "Task 3: App Build & Deploy"
 
 on:
-  workflow_run:
-    workflows: ["Ansible Software Deployment"]
-    types:
-      - completed
   workflow_dispatch:
+    inputs:
+      vm_ip:
+        description: 'Введіть IP-адресу ВМ (savitskyi-node)'
+        required: true
 
 jobs:
+  # ДЖОБА 1: Збірка та відправка образів
   build-and-push:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - ref: 'develop'
-            tag: 'develop'
-          - ref: '1.0.0'
-            tag: '1.0.0'
     steps:
-      - name: Checkout App Repository
-        uses: actions/checkout@v4
-        with:
-          repository: 'YulianSalo/devops-exam-pt2'
-          ref: ${{ matrix.ref }}
-
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and Push Docker Image
+      # --- Збірка середовища DEV (гілка develop) ---
+      - name: Checkout external app (develop branch)
+        uses: actions/checkout@v4
+        with:
+          repository: 'YulianSalo/devops-exam-pt2'
+          ref: 'develop'
+
+      - name: Build and push Dev image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ matrix.tag }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/exam-app:develop
 
-  deploy:
+      # --- Збірка середовища RELEASE (тег 1.0.0) ---
+      - name: Checkout external app (tag 1.0.0)
+        uses: actions/checkout@v4
+        with:
+          repository: 'YulianSalo/devops-exam-pt2'
+          ref: '1.0.0'
+
+      - name: Build and push Release image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/exam-app:1.0.0
+
+  # ДЖОБА 2: Розгортання у K8s та прокидання портів
+  deploy-to-k8s:
     needs: build-and-push
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - env: 'dev'
-            tag: 'develop'
-            port: '8002'
-          - env: 'release'
-            tag: '1.0.0'
-            port: '8003'
     steps:
-      - name: Checkout Infrastructure
+      - name: Checkout YOUR code
         uses: actions/checkout@v4
-
-      - name: Get VM IP from Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-ip
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      - name: Fallback to Manual IP (if artifact fails)
-        if: env.VM_IP == ''
-        run: |
-          if [ ! -f vm_ip.txt ]; then
-            echo "34.61.192.94" > vm_ip.txt
-          fi
-          echo "VM_IP=$(cat vm_ip.txt)" >> $GITHUB_ENV
 
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ github.event.inputs.vm_ip }} >> ~/.ssh/known_hosts
 
-      - name: Kubernetes Dry Run Check
+      - name: Copy manifest to target VM
         run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} \
-          "sudo -u yablonskyi_devops kubectl run app-${{ matrix.env }} --image=${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ matrix.tag }} --port=8000 --dry-run=client"
+          scp -i ~/.ssh/id_rsa task3/app-manifest.yaml ubuntu@${{ github.event.inputs.vm_ip }}:/home/ubuntu/app-manifest.yaml
 
-      - name: Deploy to Minikube
+      - name: Deploy and Port-Forward
         run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} << EOF
-            sudo -u yablonskyi_devops kubectl create namespace ${{ matrix.env }} --dry-run=client -o yaml | sudo -u yablonskyi_devops kubectl apply -f -
+          ssh -i ~/.ssh/id_rsa ubuntu@${{ github.event.inputs.vm_ip }} << 'EOF'
+            # Вбиваємо старі процеси port-forward, якщо вони є (щоб не було конфлікту портів при перезапуску)
+            pkill -f "port-forward.*8002" || true
+            pkill -f "port-forward.*8003" || true
 
-            sudo -u yablonskyi_devops kubectl delete pod app-${{ matrix.env }} --namespace=${{ matrix.env }} --ignore-not-found=true
+            # ==========================================
+            # Розгортання середовища DEV
+            # ==========================================
+            sed -e "s|\${ENV_NAME}|dev|g" \
+                -e "s|\${IMAGE_TAG}|develop|g" \
+                -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
+                app-manifest.yaml > dev-deploy.yaml
 
-            sudo -u yablonskyi_devops kubectl run app-${{ matrix.env }} \
-              --image=${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ matrix.tag }} \
-              --port=8000 \
-              --namespace=${{ matrix.env }} \
-              --restart=Never \
-              --dry-run=client -o yaml | sudo -u yablonskyi_devops kubectl apply -f -
+            kubectl apply -f dev-deploy.yaml --dry-run=client
+            kubectl apply -f dev-deploy.yaml
 
-            sudo -u yablonskyi_devops kubectl delete svc app-svc-${{ matrix.env }} --namespace=${{ matrix.env }} --ignore-not-found=true
+            # Чекаємо поки под підніметься, щоб port-forward не впав одразу
+            sleep 15
 
-            sudo -u yablonskyi_devops kubectl expose pod app-${{ matrix.env }} \
-              --type=NodePort \
-              --port=80 \
-              --target-port=8000 \
-              --name=app-svc-${{ matrix.env }} \
-              --namespace=${{ matrix.env }}
+            # Прокидаємо порт 8002
+            nohup kubectl port-forward svc/devops-app-svc 8002:8000 -n dev --address 0.0.0.0 > /dev/null 2>&1 &
 
-            sudo -u yablonskyi_devops kubectl delete pod pf-${{ matrix.env }} --namespace=${{ matrix.env }} --ignore-not-found=true
+            # ==========================================
+            # Розгортання середовища RELEASE
+            # ==========================================
+            sed -e "s|\${ENV_NAME}|release|g" \
+                -e "s|\${IMAGE_TAG}|1.0.0|g" \
+                -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
+                app-manifest.yaml > release-deploy.yaml
 
-            sudo -u yablonskyi_devops kubectl run pf-${{ matrix.env }} \
-              --image=alpine/socat \
-              --namespace=${{ matrix.env }} \
-              --restart=Never \
-              --command -- sh -c "apk add --no-cache socat && socat TCP-LISTEN:${{ matrix.port }},fork,reuseaddr TCP:app-svc-${{ matrix.env }}:80"
+            kubectl apply -f release-deploy.yaml --dry-run=client
+            kubectl apply -f release-deploy.yaml
+
+            sleep 15
+
+            # Прокидаємо порт 8003
+            nohup kubectl port-forward svc/devops-app-svc 8003:8000 -n release --address 0.0.0.0 > /dev/null 2>&1 &
+
+            echo "Успішно розгорнуто!"
           EOF
