@@ -1,0 +1,86 @@
+name: "App Deployment to Minikube"
+
+on:
+  push:
+    branches: [ "develop" ]
+    tags: [ "1.0.0" ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options: ['dev', 'release']
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout App Repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'YulianSalo/devops-exam-pt2'
+          ref: ${{ github.ref }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Вимога: Теги образів відповідно до гілки/тегу
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ github.ref_name }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Infrastructure
+        uses: actions/checkout@v4 # Твій репозиторій з маніфестами
+
+      - name: Get VM IP from Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-ip
+          run-id: ${{ github.event.workflow_run.id }} # Або передай IP через секрет/змінну
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      # ВИМОГА: ПЕРЕВІРКА БЕЗ РОЗГОРТАННЯ (Dry Run)
+      - name: Kubernetes Dry Run Check
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@$(cat vm_ip.txt) \
+          "sudo -u yablonskyi_devops kubectl apply -f k8s/deployment.yaml --dry-run=client"
+
+      # РЕАЛЬНЕ РОЗГОРТАННЯ
+      - name: Deploy to Minikube
+        run: |
+          # Визначаємо параметри на основі гілки
+          if [[ "${{ github.ref_name }}" == "develop" ]]; then
+            ENV="dev"
+            PORT="8002"
+          else
+            ENV="release"
+            PORT="8003"
+          fi
+
+          ssh -o StrictHostKeyChecking=no ubuntu@$(cat vm_ip.txt) << EOF
+            sudo -u yablonskyi_devops kubectl create namespace $ENV --dry-run=client -o yaml | sudo -u yablonskyi_devops kubectl apply -f -
+            sudo -u yablonskyi_devops kubectl run app-$ENV --image=${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ github.ref_name }} \
+              --port=80 --namespace=$ENV --dry-run=client -o yaml | sudo -u yablonskyi_devops kubectl apply -f -
+
+            # Прокидання порту на зовнішню IP віртуалки
+            nohup sudo -u yablonskyi_devops kubectl port-forward pod/app-$ENV $PORT:80 --namespace=$ENV --address 0.0.0.0 > /dev/null 2>&1 &
+          EOF
