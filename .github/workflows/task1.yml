@@ -59,4 +59,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: terraform-ip
-          path: terraform/vm_ip.txt
+          path: task1/vm_ip.txt
