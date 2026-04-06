@@ -8,6 +8,7 @@ on:
         required: true
 
 jobs:
+  # ДЖОБА 1: Збірка та відправка образів
   build-and-push:
     runs-on: ubuntu-latest
     steps:
@@ -17,6 +18,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # --- Збірка середовища DEV (гілка develop) ---
       - name: Checkout external app (develop branch)
         uses: actions/checkout@v4
         with:
@@ -30,6 +32,7 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/exam-app:develop
 
+      # --- Збірка середовища RELEASE (тег 1.0.0) ---
       - name: Checkout external app (tag 1.0.0)
         uses: actions/checkout@v4
         with:
@@ -43,6 +46,7 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/exam-app:1.0.0
 
+  # ДЖОБА 2: Розгортання у K8s та прокидання портів
   deploy-to-k8s:
     needs: build-and-push
     runs-on: ubuntu-latest
@@ -57,46 +61,51 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ github.event.inputs.vm_ip }} >> ~/.ssh/known_hosts
 
-      - name: Copy manifest to target VM
+      - name: Copy manifest to temporary location
         run: |
-          # Копіюємо у /tmp, бо там є доступ на читання для всіх
+          # Копіюємо у /tmp, щоб потім перемістити з потрібними правами
           scp -i ~/.ssh/id_rsa task3/app-manifest.yaml ubuntu@${{ github.event.inputs.vm_ip }}:/tmp/app-manifest.yaml
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ github.event.inputs.vm_ip }} "chmod 644 /tmp/app-manifest.yaml"
 
       - name: Deploy and Port-Forward as yablonskyi_devops
         run: |
           ssh -i ~/.ssh/id_rsa ubuntu@${{ github.event.inputs.vm_ip }} << 'EOF'
-            sudo -u yablonskyi_devops bash << 'INNER_EOF'
-              # Переходимо в домашню директорію, де у юзера є права на запис
-              cd /home/yablonskyi_devops
+            # Визначаємо цільову папку
+            TARGET_DIR="/home/yablonskyi_devops"
+            
+            # Переміщуємо файл в папку юзера та змінюємо власника
+            sudo mv /tmp/app-manifest.yaml $TARGET_DIR/app-manifest.yaml
+            sudo chown yablonskyi_devops:yablonskyi_devops $TARGET_DIR/app-manifest.yaml
 
-              # Очищення старих прокидань портів
+            # Виконуємо блок команд від імені yablonskyi_devops
+            sudo -u yablonskyi_devops -i bash << 'SUDO_EOF'
+              cd /home/yablonskyi_devops
+              
+              # Вбиваємо старі процеси port-forward
               pkill -f "port-forward.*8002" || true
               pkill -f "port-forward.*8003" || true
-
-              # 1. Deployment для DEV
+              
+              # --- DEV ---
               sed -e "s|\${ENV_NAME}|dev|g" \
                   -e "s|\${IMAGE_TAG}|develop|g" \
                   -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
-                  /tmp/app-manifest.yaml > dev-deploy.yaml
-
-              kubectl apply -f dev-deploy.yaml --validate=false
-
-              # Чекаємо трохи, щоб K8s створив ресурси перед прокиданням порту
-              sleep 10
+                  app-manifest.yaml > dev-deploy.yaml
+              
+              kubectl apply -f dev-deploy.yaml
+              
+              sleep 15
               nohup kubectl port-forward svc/devops-app-svc 8002:8000 -n dev --address 0.0.0.0 > /dev/null 2>&1 &
 
-              # 2. Deployment для RELEASE
+              # --- RELEASE ---
               sed -e "s|\${ENV_NAME}|release|g" \
                   -e "s|\${IMAGE_TAG}|1.0.0|g" \
                   -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
-                  /tmp/app-manifest.yaml > release-deploy.yaml
-
-              kubectl apply -f release-deploy.yaml --validate=false
-
-              sleep 10
+                  app-manifest.yaml > release-deploy.yaml
+              
+              kubectl apply -f release-deploy.yaml
+              
+              sleep 15
               nohup kubectl port-forward svc/devops-app-svc 8003:8000 -n release --address 0.0.0.0 > /dev/null 2>&1 &
-
-              echo "Deployment finished successfully!"
-INNER_EOF
-EOF
+              
+              echo "Успішно розгорнуто користувачем $(whoami) у директорії $(pwd)!"
+            SUDO_EOF
+          EOF
