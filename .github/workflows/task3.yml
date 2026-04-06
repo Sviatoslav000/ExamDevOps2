@@ -62,7 +62,7 @@ jobs:
         with:
           name: terraform-ip
           # Беремо артефакт з останнього успішного запуску Terraform
-          run-id: ${{ github.event.workflow_run.id }} 
+          run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
@@ -123,5 +123,5 @@ jobs:
             POD_IP=\$(sudo -u yablonskyi_devops kubectl get pod app-${{ matrix.env }} --namespace=${{ matrix.env }} -o jsonpath='{.status.podIP}')
 
             # Запускаємо перенаправлення через socat (він набагато стабільніший)
-            nohup sudo socat TCP-LISTEN:${{ matrix.port }},fork,reuseaddr TCP:\$POD_IP:80 > /dev/null 2>&1 &
+            nohup sudo socat TCP-LISTEN:${{ matrix.port }},fork,reuseaddr TCP:\$POD_IP:8000 > /dev/null 2>&1 &
           EOF
