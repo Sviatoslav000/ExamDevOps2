@@ -65,26 +65,24 @@ jobs:
         run: |
           # Копіюємо у /tmp, щоб потім перемістити з потрібними правами
           scp -i ~/.ssh/id_rsa task3/app-manifest.yaml ubuntu@${{ github.event.inputs.vm_ip }}:/tmp/app-manifest.yaml
-
       - name: Deploy and Port-Forward as yablonskyi_devops
         run: |
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ github.event.inputs.vm_ip }} << 'EOF'
-            # Визначаємо цільову папку
+          ssh -i ~/.ssh/id_rsa ubuntu@${{ github.event.inputs.vm_ip }} << 'OUTER_EOF'
+            # 1. Підготовка файлу (від імені ubuntu, бо scp поклав його в /tmp)
             TARGET_DIR="/home/yablonskyi_devops"
-            
-            # Переміщуємо файл в папку юзера та змінюємо власника
             sudo mv /tmp/app-manifest.yaml $TARGET_DIR/app-manifest.yaml
             sudo chown yablonskyi_devops:yablonskyi_devops $TARGET_DIR/app-manifest.yaml
 
-            # Виконуємо блок команд від імені yablonskyi_devops
+            # 2. Виконання команд від імені yablonskyi_devops
+            # Використовуємо 'SUDO_EOF' в лапках, щоб попередити підстановку змінних на цьому етапі
             sudo -u yablonskyi_devops -i bash << 'SUDO_EOF'
               cd /home/yablonskyi_devops
               
-              # Вбиваємо старі процеси port-forward
+              # Очищення старих портів
               pkill -f "port-forward.*8002" || true
               pkill -f "port-forward.*8003" || true
               
-              # --- DEV ---
+              # --- DEV Environment ---
               sed -e "s|\${ENV_NAME}|dev|g" \
                   -e "s|\${IMAGE_TAG}|develop|g" \
                   -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
@@ -92,20 +90,20 @@ jobs:
               
               kubectl apply -f dev-deploy.yaml
               
-              sleep 15
-              nohup kubectl port-forward svc/devops-app-svc 8002:8000 -n dev --address 0.0.0.0 > /dev/null 2>&1 &
-
-              # --- RELEASE ---
+              # --- RELEASE Environment ---
               sed -e "s|\${ENV_NAME}|release|g" \
                   -e "s|\${IMAGE_TAG}|1.0.0|g" \
                   -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
                   app-manifest.yaml > release-deploy.yaml
               
               kubectl apply -f release-deploy.yaml
+
+              # Очікування підняття подів та запуск port-forward
+              sleep 20
               
-              sleep 15
+              nohup kubectl port-forward svc/devops-app-svc 8002:8000 -n dev --address 0.0.0.0 > /dev/null 2>&1 &
               nohup kubectl port-forward svc/devops-app-svc 8003:8000 -n release --address 0.0.0.0 > /dev/null 2>&1 &
               
-              echo "Успішно розгорнуто користувачем $(whoami) у директорії $(pwd)!"
-            SUDO_EOF
-          EOF
+              echo "Успішно розгорнуто користувачем \$(whoami)!"
+SUDO_EOF
+OUTER_EOF
