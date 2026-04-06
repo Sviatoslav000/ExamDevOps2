@@ -86,28 +86,42 @@ jobs:
           ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} \
           "sudo -u yablonskyi_devops kubectl run app-${{ matrix.env }} --image=${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ matrix.tag }} --dry-run=client"
 
-      # РЕАЛЬНЕ РОЗГОРТАННЯ
+    # РЕАЛЬНЕ РОЗГОРТАННЯ ЧЕРЕЗ SERVICE
       - name: Deploy to Minikube
         run: |
           ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} << EOF
             # 1. Створення Namespace
             sudo -u yablonskyi_devops kubectl create namespace ${{ matrix.env }} --dry-run=client -o yaml | sudo -u yablonskyi_devops kubectl apply -f -
 
-            # 2. Видалення старого поду, якщо він є (щоб оновити образ)
-            sudo -u yablonskyi_devops kubectl delete pod app-${{ matrix.env }} --namespace=${{ matrix.env }} --ignore-not-found=true
-
-            # 3. Запуск нового поду
+            # 2. Запуск Поду (якщо не створено)
             sudo -u yablonskyi_devops kubectl run app-${{ matrix.env }} \
               --image=${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ matrix.tag }} \
               --port=80 \
               --namespace=${{ matrix.env }} \
-              --labels="env=${{ matrix.env }}"
+              --dry-run=client -o yaml | sudo -u yablonskyi_devops kubectl apply -f -
 
-            # 4. Очікування готовності (опціонально)
-            sleep 10
+            # 3. ВИДАЛЯЄМО СТАРИЙ СЕРВІС (якщо є)
+            sudo -u yablonskyi_devops kubectl delete svc app-svc-${{ matrix.env }} --namespace=${{ matrix.env }} --ignore-not-found=true
 
-            # 5. Прокидання порту (використовуємо 8002 для dev та 8003 для release)
-            # Вбиваємо старий форвард на цьому порті, якщо він завис
+            # 4. СТВОРЮЄМО СЕРВІС ТИПУ NODEPORT
+            # Це відкриє випадковий порт (30000-32767) на рівні кластера
+            sudo -u yablonskyi_devops kubectl expose pod app-${{ matrix.env }} \
+              --type=NodePort \
+              --port=80 \
+              --target-port=80 \
+              --name=app-svc-${{ matrix.env }} \
+              --namespace=${{ matrix.env }}
+
+            # 5. МАГІЯ: ПРОКИДАННЯ ПОРТУ (SOCAT або PORT-FORWARD)
+            # Оскільки нам потрібні саме 8002/8003, використаємо socat — він надійніший за kubectl для фону
+            sudo apt-get install -y socat
+
+            # Вбиваємо старі перенаправлення
             sudo fuser -k ${{ matrix.port }}/tcp || true
-            nohup sudo -u yablonskyi_devops kubectl port-forward pod/app-${{ matrix.env }} ${{ matrix.port }}:80 --namespace=${{ matrix.env }} --address 0.0.0.0 > /dev/null 2>&1 &
+
+            # Отримуємо внутрішній IP поду
+            POD_IP=\$(sudo -u yablonskyi_devops kubectl get pod app-${{ matrix.env }} --namespace=${{ matrix.env }} -o jsonpath='{.status.podIP}')
+
+            # Запускаємо перенаправлення через socat (він набагато стабільніший)
+            nohup sudo socat TCP-LISTEN:${{ matrix.port }},fork,reuseaddr TCP:\$POD_IP:80 > /dev/null 2>&1 &
           EOF
