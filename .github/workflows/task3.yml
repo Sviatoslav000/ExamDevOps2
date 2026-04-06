@@ -3,7 +3,7 @@ name: "App Deployment to Minikube"
 on:
   # Автоматичний запуск після завершення конвеєра Ansible
   workflow_run:
-    workflows: ["Ansible Deployment"] # Переконайся, що назва збігається з name у ansible.yml
+    workflows: ["Ansible Software Deployment"] # Переконайся, що назва збігається з name у ansible.yml
     types:
       - completed
   # Залишаємо можливість ручного запуску для тестів
