@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       vm_ip:
-        description: 'Введіть IP-адресу ВМ (savitskyi-node)'
+        description: 'Введіть IP-адресу ВМ'
         required: true
 
 jobs:
