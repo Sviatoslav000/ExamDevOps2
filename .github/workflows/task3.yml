@@ -65,45 +65,42 @@ jobs:
         run: |
           # Копіюємо у /tmp, щоб потім перемістити з потрібними правами
           scp -i ~/.ssh/id_rsa task3/app-manifest.yaml ubuntu@${{ github.event.inputs.vm_ip }}:/tmp/app-manifest.yaml
+
       - name: Deploy and Port-Forward as yablonskyi_devops
         run: |
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ github.event.inputs.vm_ip }} << 'OUTER_EOF'
-            # 1. Підготовка файлу (від імені ubuntu, бо scp поклав його в /tmp)
+          ssh -i ~/.ssh/id_rsa ubuntu@${{ github.event.inputs.vm_ip }} << 'EOF'
             TARGET_DIR="/home/yablonskyi_devops"
+
+            # Підготовка маніфесту в папку користувача
             sudo mv /tmp/app-manifest.yaml $TARGET_DIR/app-manifest.yaml
             sudo chown yablonskyi_devops:yablonskyi_devops $TARGET_DIR/app-manifest.yaml
 
-            # 2. Виконання команд від імені yablonskyi_devops
-            # Використовуємо 'SUDO_EOF' в лапках, щоб попередити підстановку змінних на цьому етапі
-            sudo -u yablonskyi_devops -i bash << 'SUDO_EOF'
-              cd /home/yablonskyi_devops
-              
-              # Очищення старих портів
-              pkill -f "port-forward.*8002" || true
-              pkill -f "port-forward.*8003" || true
-              
-              # --- DEV Environment ---
-              sed -e "s|\${ENV_NAME}|dev|g" \
-                  -e "s|\${IMAGE_TAG}|develop|g" \
-                  -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
-                  app-manifest.yaml > dev-deploy.yaml
-              
-              kubectl apply -f dev-deploy.yaml
-              
-              # --- RELEASE Environment ---
-              sed -e "s|\${ENV_NAME}|release|g" \
-                  -e "s|\${IMAGE_TAG}|1.0.0|g" \
-                  -e "s|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g" \
-                  app-manifest.yaml > release-deploy.yaml
-              
-              kubectl apply -f release-deploy.yaml
+            # Очищення старих портів (виконуємо від імені devops-юзера)
+            sudo -u yablonskyi_devops pkill -f "port-forward.*8002" || true
+            sudo -u yablonskyi_devops pkill -f "port-forward.*8003" || true
 
-              # Очікування підняття подів та запуск port-forward
-              sleep 20
-              
-              nohup kubectl port-forward svc/devops-app-svc 8002:8000 -n dev --address 0.0.0.0 > /dev/null 2>&1 &
-              nohup kubectl port-forward svc/devops-app-svc 8003:8000 -n release --address 0.0.0.0 > /dev/null 2>&1 &
-              
-              echo "Успішно розгорнуто користувачем \$(whoami)!"
-SUDO_EOF
-OUTER_EOF
+            # --- DEV Environment ---
+            sudo -u yablonskyi_devops sh -c "sed -e 's|\${ENV_NAME}|dev|g' \
+                -e 's|\${IMAGE_TAG}|develop|g' \
+                -e 's|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g' \
+                $TARGET_DIR/app-manifest.yaml > $TARGET_DIR/dev-deploy.yaml"
+
+            sudo -u yablonskyi_devops kubectl apply -f $TARGET_DIR/dev-deploy.yaml
+
+            # --- RELEASE Environment ---
+            sudo -u yablonskyi_devops sh -c "sed -e 's|\${ENV_NAME}|release|g' \
+                -e 's|\${IMAGE_TAG}|1.0.0|g' \
+                -e 's|\${DOCKER_USER}|${{ secrets.DOCKERHUB_USERNAME }}|g' \
+                $TARGET_DIR/app-manifest.yaml > $TARGET_DIR/release-deploy.yaml"
+
+            sudo -u yablonskyi_devops kubectl apply -f $TARGET_DIR/release-deploy.yaml
+
+            # Очікування підняття подів
+            sleep 20
+
+            # Запуск port-forward у фоні
+            sudo -u yablonskyi_devops nohup kubectl port-forward svc/devops-app-svc 8002:8000 -n dev --address 0.0.0.0 > /dev/null 2>&1 &
+            sudo -u yablonskyi_devops nohup kubectl port-forward svc/devops-app-svc 8003:8000 -n release --address 0.0.0.0 > /dev/null 2>&1 &
+
+            echo "Успішно розгорнуто від імені yablonskyi_devops!"
+          EOF
