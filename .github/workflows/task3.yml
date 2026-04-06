@@ -1,0 +1,113 @@
+name: "App Deployment to Minikube"
+
+on:
+  # Автоматичний запуск після завершення конвеєра Ansible
+  workflow_run:
+    workflows: ["Ansible Deployment"] # Переконайся, що назва збігається з name у ansible.yml
+    types:
+      - completed
+  # Залишаємо можливість ручного запуску для тестів
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # ВИМОГА: Збірка з гілки develop та тегу 1.0.0 одночасно
+        include:
+          - ref: 'develop'
+            tag: 'develop'
+          - ref: '1.0.0'
+            tag: '1.0.0'
+    steps:
+      - name: Checkout App Repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'YulianSalo/devops-exam-pt2'
+          ref: ${{ matrix.ref }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ matrix.tag }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - env: 'dev'
+            tag: 'develop'
+            port: '8002'
+          - env: 'release'
+            tag: '1.0.0'
+            port: '8003'
+    steps:
+      - name: Checkout Infrastructure
+        uses: actions/checkout@v4
+
+      - name: Get VM IP from Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-ip
+          # Беремо артефакт з останнього успішного запуску Terraform
+          run-id: ${{ github.event.workflow_run.id }} 
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Fallback to Manual IP (if artifact fails)
+        if: env.VM_IP == ''
+        run: |
+          if [ ! -f vm_ip.txt ]; then
+            echo "34.61.192.94" > vm_ip.txt
+          fi
+          echo "VM_IP=$(cat vm_ip.txt)" >> $GITHUB_ENV
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      # ВИМОГА: Перевірка Dry Run
+      - name: Kubernetes Dry Run Check
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} \
+          "sudo -u yablonskyi_devops kubectl run app-${{ matrix.env }} --image=${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ matrix.tag }} --dry-run=client"
+
+      # РЕАЛЬНЕ РОЗГОРТАННЯ
+      - name: Deploy to Minikube
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} << EOF
+            # 1. Створення Namespace
+            sudo -u yablonskyi_devops kubectl create namespace ${{ matrix.env }} --dry-run=client -o yaml | sudo -u yablonskyi_devops kubectl apply -f -
+
+            # 2. Видалення старого поду, якщо він є (щоб оновити образ)
+            sudo -u yablonskyi_devops kubectl delete pod app-${{ matrix.env }} --namespace=${{ matrix.env }} --ignore-not-found=true
+
+            # 3. Запуск нового поду
+            sudo -u yablonskyi_devops kubectl run app-${{ matrix.env }} \
+              --image=${{ secrets.DOCKERHUB_USERNAME }}/exam-app:${{ matrix.tag }} \
+              --port=80 \
+              --namespace=${{ matrix.env }} \
+              --labels="env=${{ matrix.env }}"
+
+            # 4. Очікування готовності (опціонально)
+            sleep 10
+
+            # 5. Прокидання порту (використовуємо 8002 для dev та 8003 для release)
+            # Вбиваємо старий форвард на цьому порті, якщо він завис
+            sudo fuser -k ${{ matrix.port }}/tcp || true
+            nohup sudo -u yablonskyi_devops kubectl port-forward pod/app-${{ matrix.env }} ${{ matrix.port }}:80 --namespace=${{ matrix.env }} --address 0.0.0.0 > /dev/null 2>&1 &
+          EOF
