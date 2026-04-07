@@ -39,7 +39,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: ./terraform
+        working-directory: ./task1
 
     steps:
       - name: Checkout code
